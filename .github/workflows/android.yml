@@ -21,7 +21,7 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - triplet: 'arm64-android'
@@ -31,7 +31,6 @@ jobs:
           - triplet: 'arm64-android'
             qt_arch: 'android_arm64_v8a'
             all_files_access: 'ON'
-
 
     steps:
       - name: 🐣 Checkout
@@ -74,8 +73,8 @@ jobs:
       - name: 💎 Setup ruby
         uses: ruby/setup-ruby@v1
         with:
-          ruby-version: '3.2' # Not needed with a .ruby-version file
-          bundler-cache: true # runs 'bundle install' and caches installed gems automatically
+          ruby-version: '3.2'
+          bundler-cache: true
 
       - name: 🐩 Install CMake and Ninja
         uses: lukka/get-cmake@latest
@@ -85,7 +84,14 @@ jobs:
       - name: 🔨 Prepare build env
         run: |
           sudo apt-get update
-          sudo apt-get install -y gperf autopoint '^libxcb.*-dev' libx11-xcb-dev libegl1-mesa libegl1-mesa-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev autoconf-archive libgstreamer-gl1.0-0 libgstreamer-plugins-base1.0-0 libfuse2 libcups2-dev nasm
+          sudo apt-get install -y gperf autopoint '^libxcb.*-dev' libx11-xcb-dev libegl1-mesa libegl1-mesa-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev
+        continue-on-error: true
+
+      - name: Log error details
+        if: failure()
+        run: |
+          echo "Error during environment preparation"
+          tail -n 100 /var/log/apt/term.log
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -93,11 +99,6 @@ jobs:
           key: ${{ matrix.triplet }}-qt6
           max-size: 200M
 
-      # The sentry-android dependency is added via gradle
-      # This downloads the pre-compiled sentry-android-ndk libraries
-      # But we are compiling this before gradle is executed, so it is not downloaded
-      # Therefore we download it manually to get include headers and libraries
-      # ... a better implementation of this much appreciated ...
       - name: Download sentry libs
         run: |
           mkdir /tmp/sentry-android-ndk
@@ -175,7 +176,6 @@ jobs:
       - name: 🍺 Deploy
         run: |
           sudo apt install -y s3cmd
-          # This script will rename the artifact and move it to /tmp
           NAME=${{ matrix.artifact_name }} ALL_FILES_ACCESS=${{ matrix.all_files_access }} ./scripts/ci/upload_artifacts.sh
         env:
           S3CFG: ${{ secrets.S3CMD_CFG }}
@@ -189,14 +189,12 @@ jobs:
           release-tag: ${{ env.CI_TAG }}
 
       - name: 📮 Upload debug symbols
-        # if: release or labeled PR
         if: ${{ matrix.all_files_access == 'OFF' && env.SENTRY_AUTH_TOKEN != '' }}
         env:
           SENTRY_ORG_SLUG: opengisch
           SENTRY_PROJECT_SLUG: qfield
         run: |
           bundle exec fastlane run sentry_debug_files_upload path:${{ env.CMAKE_BUILD_DIR }}/src/app/android-build/build/intermediates/merged_native_libs/release
-
 
   deploy_to_playstore:
     name: deploy to play store
@@ -241,7 +239,6 @@ jobs:
               qfield-${{ env.CI_PACKAGE_FILE_SUFFIX }}-android-x86.apk
         env:
           GOOGLE_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT }}
-
 
   comment_pr:
     name: comment (pr)
